@@ -15,6 +15,7 @@ uint32_t Get_MCtrl_ErrorReg(void);
 uint32_t Get_MCtrl_StateInidication_DbgVal(void);
 uint32_t Get_MCtrl_StateInidication_ShutterOpenLightOutput_DbgVal(void);
 uint32_t Get_MCtrl_StateInidication_ShutterCloseLightOutput_DbgVal(void);
+uint32_t Get_MCtrl_Error_DbgVal(void);
 
 
 #if defined(__cplusplus)

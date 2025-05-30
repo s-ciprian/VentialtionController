@@ -148,6 +148,7 @@ void loop() {
       Serial.print("VDS_State = "); Serial.print(Get_VentDuctShutterSM_State());
       Serial.print(" ShutterCloseLightOutput_DbgVal = "); Serial.print(Get_MCtrl_StateInidication_ShutterCloseLightOutput_DbgVal());
       Serial.print(" ShutterOpenLightOutput_DbgVal = "); Serial.print(Get_MCtrl_StateInidication_ShutterOpenLightOutput_DbgVal());
+      Serial.print(" Error__DbgVal = "); Serial.print(Get_MCtrl_Error_DbgVal());
       Serial.print(" MCtrl_Error = "); Serial.print(Get_MCtrl_ErrorReg());
       Serial.print("\n");
     }

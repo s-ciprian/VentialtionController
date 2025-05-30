@@ -78,16 +78,21 @@ static T_COUNT_L toutClosing;
 static T_COUNT_L toutOpening;
 static uint32_t ShutterCloseLightOutput_DbgVal;
 static uint32_t ShutterOpenLightOutput_DbgVal;
+static uint32_t Error_LightOutput_DbgVal;
 
 static const uint32_t TIMEOUT_CLOSING = 3000; // 30 seconds = 30000 ms; 30000 ms / 10ms = 3000
 static const uint32_t TIMEOUT_OPENING = 3000; // same as above
 
 static const uint32_t TIME_BLINK_ON_MOT = 50;  // when motor moving output is 0.5 s ON then 0.5 s OFF
-static const uint32_t TIME_BLINK_ON_ERR = 35;  // when error is present output is 0.25 s ON then 0.25 s OFF
+static const uint32_t TIME_BLINK_ON_ERR_1 = 100; // when error is present output is 1s ON then 1s OFF
+static const uint32_t TIME_BLINK_ON_ERR_2 = 200; // when error is present output is 1s ON then 1s OFF
+
 uint32_t ShutterClose_Blink_Duration;
 uint32_t ShutterOpen_Blink_Duration;
+static uint32_t Error_Blink_Duration;
 static T_COUNT_W ShutterClose_Blink_Tmr;    // 16 bit timer for implemented indication output control (this output controls an LED)
 static T_COUNT_W ShutterOpen_Blink_Tmr;
+static T_COUNT_W ShutterError_Blink_Tmr;
 
 
 // *****************************************************************************
@@ -107,7 +112,7 @@ static DigitaInputlOuptut_State_t ShutterClose_BtnPressed(void);
 static void ErrClearAllErrors(error_t * const errReg);
 static void ErrSetError(error_t * const errReg, error_t err);
 //static void ErrClrError(error_t * const errReg, error_t err);
-//static bool ErrGetState(error_t * const errReg, error_t err);
+static bool ErrGetState(error_t * const errReg, error_t err);
 
 static void MCtrl_Main_Begin(void);
 static void MCtrl_Main_End(void);
@@ -133,6 +138,7 @@ void MCtrl_Init(void)
 
   ShutterClose_Blink_Duration = 0u;
   ShutterOpen_Blink_Duration = 0u;
+  Error_Blink_Duration = 0u;
 
   ErrClearAllErrors(&ErrorRegister1);
 
@@ -140,6 +146,7 @@ void MCtrl_Init(void)
   STOP_COUNT_L(toutOpening);
   STOP_COUNT_W(ShutterClose_Blink_Tmr);
   STOP_COUNT_W(ShutterOpen_Blink_Tmr);
+  STOP_COUNT_W(ShutterError_Blink_Tmr);
 
   ShutterOpen_BtnState_Previous = ShutterOpen_BtnState = ShutterOpen_BtnPressed();
   ShutterClose_BtnState_Previous = ShutterClose_BtnState = ShutterClose_BtnPressed();
@@ -325,6 +332,13 @@ uint32_t Get_MCtrl_StateInidication_ShutterOpenLightOutput_DbgVal(void)
   return ShutterOpenLightOutput_DbgVal;
 }
 
+//==============================================================================
+// FUNCTION
+//==============================================================================
+uint32_t Get_MCtrl_Error_DbgVal(void)
+{
+  return Error_LightOutput_DbgVal;
+}
 
 
 // *****************************************************************************
@@ -528,33 +542,39 @@ static void MCtrl_StateInidication(void)
   // and one to drive the light signalisation for closing
   static Shutter_Blink_SM_t ShutterClose_Blink_SM = Idle;
   static Shutter_Blink_SM_t ShutterOpen_Blink_SM = Idle;
+  static Shutter_Blink_SM_t Error_Blink_SM = Idle;
 
   // State value used for dbug
   ShutterCloseLightOutput_DbgVal = 0u;
   ShutterOpenLightOutput_DbgVal = 0u;
+  //Error_LightOutput_DbgVal = 0u;
 
   // Timer to implement blinking periods
   bsw_DecCnt_Word(&ShutterClose_Blink_Tmr);
   bsw_DecCnt_Word(&ShutterOpen_Blink_Tmr);
+  bsw_DecCnt_Word(&ShutterError_Blink_Tmr);
 
   // If a button is pressed stop timers - for sincronisation in case of error
   if (ev_ShutterOPEN_Btn_Pressed_Signaling || ev_ShutterCLOSE_Btn_Pressed_Signaling)
   {
     STOP_COUNT_W(ShutterClose_Blink_Tmr);
     STOP_COUNT_W(ShutterOpen_Blink_Tmr);
+    STOP_COUNT_W(ShutterError_Blink_Tmr);
 
     // Stop blinking - command
     Output_Light_ShutterClose_Blink_Cmd = NoBlink;
     Output_Light_ShutterOpen_Blink_Cmd = NoBlink;
 
     // reset blink state machine
-    ShutterClose_Blink_SM = Idle;
-    ShutterOpen_Blink_SM = Idle;
+//    ShutterClose_Blink_SM = Idle;
+//    ShutterOpen_Blink_SM = Idle;
+//    Error_Blink_SM = Idle;
 
     // Switch off the outputs
     SetOutput_Light_ShutterClose(OFF);
     SetOutput_Light_ShutterOpen(OFF);
   }
+
 
   // ===============================================================================================================
   // (1) State transitions - Output Shuter CLOSE/ERROR light control
@@ -587,7 +607,8 @@ static void MCtrl_StateInidication(void)
     // Nothing to do
   }
 
-  // In case of error and during motor movement output 
+  //===================================================================================
+  // During motor movement output 
   // Output blink State machine
   switch(ShutterClose_Blink_SM)
   {
@@ -597,14 +618,6 @@ static void MCtrl_StateInidication(void)
         // Load timer for normal blink
         // and change state to blink the output - motor moving bliking
         ShutterClose_Blink_Duration = TIME_BLINK_ON_MOT;
-        bsw_LoadCnt_Word(&ShutterClose_Blink_Tmr, ShutterClose_Blink_Duration);
-        ShutterClose_Blink_SM = Blink_ON;
-      }
-      else if (Output_Light_ShutterClose_Blink_Cmd == OutputFastBlink)
-      {
-        // Load timer for fast blink
-        // and change state to blink the output - error blinking
-        ShutterClose_Blink_Duration = TIME_BLINK_ON_ERR;
         bsw_LoadCnt_Word(&ShutterClose_Blink_Tmr, ShutterClose_Blink_Duration);
         ShutterClose_Blink_SM = Blink_ON;
       }
@@ -622,7 +635,7 @@ static void MCtrl_StateInidication(void)
     case Blink_Delay_ON:
       ShutterCloseLightOutput_DbgVal = 3u;
 
-      // Wait to expire timer
+      // Wait for timer to expire
       if (bsw_GetCnt_Word(&ShutterClose_Blink_Tmr) == W_TIMER_OFF)
       {
         bsw_LoadCnt_Word(&ShutterClose_Blink_Tmr, ShutterClose_Blink_Duration);
@@ -630,10 +643,11 @@ static void MCtrl_StateInidication(void)
       }
 
       // Quit blinking if any button is pressed 
-      if (ev_ShutterOPEN_Btn_Pressed_Signaling || ev_ShutterCLOSE_Btn_Pressed_Signaling)
+      if ( ev_ShutterOPEN_Btn_Pressed_Signaling || ev_ShutterCLOSE_Btn_Pressed_Signaling || (ErrorRegister1 != NoErr) )
       {
-        ShutterClose_Blink_SM = Blink_Idle;
+        SetOutput_Light_ShutterClose(OFF);
         STOP_COUNT_W(ShutterClose_Blink_Tmr);
+        ShutterClose_Blink_SM = Blink_Idle;        
       }
     break;
 
@@ -645,7 +659,7 @@ static void MCtrl_StateInidication(void)
     case Blink_Delay_OFF:
       ShutterCloseLightOutput_DbgVal = 4u;
 
-      // Wait to expire timer
+      // Wait for timer to expire
       if (bsw_GetCnt_Word(&ShutterClose_Blink_Tmr) == W_TIMER_OFF)
       {
         bsw_LoadCnt_Word(&ShutterClose_Blink_Tmr, ShutterClose_Blink_Duration);
@@ -653,10 +667,11 @@ static void MCtrl_StateInidication(void)
       }
 
       // Quit blinking if any button is pressed 
-      if (ev_ShutterOPEN_Btn_Pressed_Signaling || ev_ShutterCLOSE_Btn_Pressed_Signaling)
+      if (ev_ShutterOPEN_Btn_Pressed_Signaling || ev_ShutterCLOSE_Btn_Pressed_Signaling || (ErrorRegister1 != NoErr) )
       {
-        ShutterClose_Blink_SM = Blink_Idle;
+        SetOutput_Light_ShutterClose(OFF);
         STOP_COUNT_W(ShutterClose_Blink_Tmr);
+        ShutterClose_Blink_SM = Blink_Idle;
       }
     break;
 
@@ -697,7 +712,9 @@ static void MCtrl_StateInidication(void)
     // Nothing to do
   }
 
-  // In case of error and during motor movement output 
+
+  //===================================================================================
+  // During motor movement output 
   // Output blink State machine
   switch(ShutterOpen_Blink_SM)
   {
@@ -707,14 +724,6 @@ static void MCtrl_StateInidication(void)
         // Load timer for normal blink
         // and change state to blink the output - motor moving bliking
         ShutterOpen_Blink_Duration = TIME_BLINK_ON_MOT;
-        bsw_LoadCnt_Word(&ShutterOpen_Blink_Tmr, ShutterOpen_Blink_Duration);
-        ShutterOpen_Blink_SM = Blink_ON;
-      }
-      else if (Output_Light_ShutterOpen_Blink_Cmd == OutputFastBlink)
-      {
-        // Load timer for fast blink
-        // and change state to blink the output - error blinking
-        ShutterOpen_Blink_Duration = TIME_BLINK_ON_ERR;
         bsw_LoadCnt_Word(&ShutterOpen_Blink_Tmr, ShutterOpen_Blink_Duration);
         ShutterOpen_Blink_SM = Blink_ON;
       }
@@ -732,7 +741,7 @@ static void MCtrl_StateInidication(void)
     case Blink_Delay_ON:
       ShutterOpenLightOutput_DbgVal = 3u;
 
-      // Wait to expire timer
+      // Wait for timer to expire
       if (bsw_GetCnt_Word(&ShutterOpen_Blink_Tmr) == W_TIMER_OFF)
       {
         bsw_LoadCnt_Word(&ShutterOpen_Blink_Tmr, ShutterOpen_Blink_Duration);
@@ -740,10 +749,11 @@ static void MCtrl_StateInidication(void)
       }
 
       // Quit blinking if any button is pressed 
-      if (ev_ShutterOPEN_Btn_Pressed_Signaling || ev_ShutterCLOSE_Btn_Pressed_Signaling)
+      if (ev_ShutterOPEN_Btn_Pressed_Signaling || ev_ShutterCLOSE_Btn_Pressed_Signaling  || (ErrorRegister1 != NoErr) )
       {
-        ShutterClose_Blink_SM = Blink_Idle;
+        SetOutput_Light_ShutterOpen(OFF);
         STOP_COUNT_W(ShutterOpen_Blink_Tmr);
+        ShutterClose_Blink_SM = Blink_Idle;        
       }
     break;
 
@@ -755,7 +765,7 @@ static void MCtrl_StateInidication(void)
     case Blink_Delay_OFF:
       ShutterOpenLightOutput_DbgVal = 4u;
 
-      // Wait to expire timer
+      // Wait for timer to expire
       if (bsw_GetCnt_Word(&ShutterOpen_Blink_Tmr) == W_TIMER_OFF)
       {
         bsw_LoadCnt_Word(&ShutterOpen_Blink_Tmr, ShutterOpen_Blink_Duration);
@@ -763,10 +773,11 @@ static void MCtrl_StateInidication(void)
       }
 
       // Quit blinking if any button is pressed 
-      if (ev_ShutterOPEN_Btn_Pressed_Signaling || ev_ShutterCLOSE_Btn_Pressed_Signaling)
+      if (ev_ShutterOPEN_Btn_Pressed_Signaling || ev_ShutterCLOSE_Btn_Pressed_Signaling  || (ErrorRegister1 != NoErr) )
       {
-        ShutterClose_Blink_SM = Blink_Idle;
+        SetOutput_Light_ShutterOpen(OFF);
         STOP_COUNT_W(ShutterOpen_Blink_Tmr);
+        ShutterClose_Blink_SM = Blink_Idle;
       }
     break;
 
@@ -774,6 +785,92 @@ static void MCtrl_StateInidication(void)
       ShutterOpen_Blink_SM = Blink_Idle;
     break;
   } // End of ShutterOpen_Blink_SM
+
+  
+  //===================================================================================
+  // Error semnalisation: Fast blink both outputs
+  switch(Error_Blink_SM)
+  {
+    case Blink_Idle:
+      // Load timer for semnalisation (blink)
+      // and change state to blink the output - error blinking
+      if ( (Output_Light_ShutterOpen_Blink_Cmd == OutputFastBlink) && (ErrGetState(&ErrorRegister1, ErrTimeOutOpening) == true) )
+      {
+        Error_LightOutput_DbgVal = 1u;
+
+        Error_Blink_Duration = TIME_BLINK_ON_ERR_1;
+        bsw_LoadCnt_Word(&ShutterError_Blink_Tmr, Error_Blink_Duration);
+        Error_Blink_SM = Blink_ON;
+      }
+      else if ( (Output_Light_ShutterClose_Blink_Cmd == OutputFastBlink) && (ErrGetState(&ErrorRegister1, ErrTimeOutClosing) == true) )
+      {
+        Error_LightOutput_DbgVal = 2u;
+
+        Error_Blink_Duration = TIME_BLINK_ON_ERR_2;
+        bsw_LoadCnt_Word(&ShutterError_Blink_Tmr, Error_Blink_Duration);
+        Error_Blink_SM = Blink_ON;
+      }
+      else
+      {
+        Error_LightOutput_DbgVal = 3u;
+      }
+    break;
+
+    case Blink_ON:
+      SetOutput_Light_ShutterOpen(ON);
+      SetOutput_Light_ShutterClose(ON);
+      Error_Blink_SM = Blink_Delay_ON;
+    break;
+
+    case Blink_Delay_ON:
+//      Error_LightOutput_DbgVal = 1u;
+
+      // Wait for timer to expire
+      if (bsw_GetCnt_Word(&ShutterError_Blink_Tmr) == W_TIMER_OFF)
+      {
+        bsw_LoadCnt_Word(&ShutterError_Blink_Tmr, Error_Blink_Duration);
+        Error_Blink_SM = Blink_OFF;
+      }
+      // Quit blinking if any button is pressed
+      if (ev_ShutterOPEN_Btn_Pressed_Signaling || ev_ShutterCLOSE_Btn_Pressed_Signaling || (ErrorRegister1 == NoErr) )
+      {
+        SetOutput_Light_ShutterOpen(OFF);
+        SetOutput_Light_ShutterClose(OFF);
+        STOP_COUNT_W(ShutterError_Blink_Tmr);
+        Error_Blink_SM = Blink_Idle;
+      }
+    break;
+
+    case Blink_OFF:
+      SetOutput_Light_ShutterOpen(OFF);
+      SetOutput_Light_ShutterClose(OFF);
+      Error_Blink_SM = Blink_Delay_OFF;
+    break;
+
+    case Blink_Delay_OFF:
+//      Error_LightOutput_DbgVal = 2u;
+
+      // Wait for timer to expire
+      if (bsw_GetCnt_Word(&ShutterError_Blink_Tmr) == W_TIMER_OFF)
+      {
+        bsw_LoadCnt_Word(&ShutterError_Blink_Tmr, Error_Blink_Duration);
+        Error_Blink_SM = Blink_Idle;
+      }
+      // Quit blinking if any button is pressed
+      if (ev_ShutterOPEN_Btn_Pressed_Signaling || ev_ShutterCLOSE_Btn_Pressed_Signaling || (ErrorRegister1 == NoErr) )
+      {
+        SetOutput_Light_ShutterOpen(OFF);
+        SetOutput_Light_ShutterClose(OFF);
+        STOP_COUNT_W(ShutterError_Blink_Tmr);
+      }
+    break;
+
+    default:
+      Error_Blink_SM = Blink_Idle;
+    break;
+
+  }
+
 
   ev_ShutterOPEN_Btn_Pressed_Signaling  = false;
   ev_ShutterCLOSE_Btn_Pressed_Signaling = false;
@@ -806,15 +903,14 @@ static void ErrSetError(error_t * const errReg, error_t err)
 //==============================================================================
 // FUNCTION
 //==============================================================================
-// static bool ErrGetState(error_t * const errReg, error_t err)
-// {
-//   if ((*errReg) | err)
-//   {
-//     return true;
-//   }
-//   else
-//   {
-//     return false;
-//   }
-// }
-
+static bool ErrGetState(error_t * const errReg, error_t err)
+{
+   if ( ((*errReg) | err) == err)
+   {
+     return true;
+   }
+   else
+   {
+     return false;
+   }
+}
